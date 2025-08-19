@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apps
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: iot-receiver
+  namespace: apps
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::996939000921:role/demo-eks-iot_receiver-sa
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iot-receiver
+  namespace: apps
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: iot-receiver }
+  template:
+    metadata:
+      labels: { app: iot-receiver }
+    spec:
+      serviceAccountName: iot-receiver
+      containers:
+      - name: api
+        image: 996939000921.dkr.ecr.us-east-2.amazonaws.com/iot-receiver:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AWS_REGION
+          value: us-east-2
+        - name: DDB_TABLE_NAME
+          value: iot
+        # readinessProbe:
+        #   httpGet: { path: /metrics, port: 8080 }
+        #   initialDelaySeconds: 20
+        #   periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iot-receiver
+  namespace: apps
+spec:
+  selector: { app: iot-receiver }
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: iot-receiver
+  namespace: apps
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /metrics
+    alb.ingress.kubernetes.io/subnets: subnet-030bacf16c4b3b561, subnet-002b0a054cd357387, subnet-0b98755598d7bcdef
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-2:111122223333:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # alb.ingress.kubernetes.io/backend-protocol: HTTP
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /ingest
+        pathType: Prefix
+        backend:
+          service:
+            name: iot-receiver
+            port:
+              number: 80
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: iot-receiver
+            port:
+              number: 80
